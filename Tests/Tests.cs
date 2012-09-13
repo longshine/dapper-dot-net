@@ -20,7 +20,7 @@ namespace SqlMapper
 
     class Tests
     {
-        SqlConnection connection = Program.GetOpenConnection();
+        IDbConnection connection = Program.GetOpenConnection();
 
         public class AbstractInheritance
         {
@@ -229,9 +229,10 @@ namespace SqlMapper
         }
 
         // http://stackoverflow.com/q/8593871
+        //[ActiveTest]
         public void TestAbstractInheritance() 
         {
-            var order = connection.Query<AbstractInheritance.ConcreteOrder>("select 1 Internal,2 Protected,3 [Public],4 Concrete").First();
+            var order = connection.Query<AbstractInheritance.ConcreteOrder>("select 1 Internal,2 Protected,3 Public,4 Concrete").First();
 
             order.Internal.IsEqualTo(1);
             order.ProtectedVal.IsEqualTo(2);
@@ -267,6 +268,8 @@ namespace SqlMapper
 
         struct Car
         {
+            private Int32 _privateField;
+
             public enum TrapEnum : int
             {
                 A = 1,
@@ -277,16 +280,32 @@ namespace SqlMapper
 #pragma warning restore 0649
             public int Age { get; set; }
             public TrapEnum Trap { get; set; }
-        
+
+            public Int32 PrivateField
+            {
+                get { return _privateField; }
+                set { _privateField = value; }
+            }
         }
 
         public void TestStructs()
         {
-            var car = connection.Query<Car>("select 'Ford' Name, 21 Age, 2 Trap").First();
+            var car = connection.Query<Car>("select 'Ford' Name, 21 Age, 2 Trap, 3 privateField").First();
 
             car.Age.IsEqualTo(21);
             car.Name.IsEqualTo("Ford");
             ((int)car.Trap).IsEqualTo(2);
+        }
+
+        class EmptyClass
+        {
+        }
+
+        [ActiveTest]
+        public void TestEmptyClass()
+        {
+            var empty = connection.Query<EmptyClass>("select null").First();
+            Assert.IsNull(empty);
         }
 
         public void SelectListInt()

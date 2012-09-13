@@ -205,7 +205,7 @@ namespace SqlMapper
             var connection = Program.GetOpenConnection();
 
             var postCommand = new SqlCommand();
-            postCommand.Connection = connection;
+            postCommand.Connection = connection as SqlConnection;
             postCommand.CommandText = @"select Id, [Text], [CreationDate], LastChangeDate, 
                 Counter1,Counter2,Counter3,Counter4,Counter5,Counter6,Counter7,Counter8,Counter9 from Posts where Id = @Id";
             var idParam = postCommand.Parameters.Add("@Id", System.Data.SqlDbType.Int);

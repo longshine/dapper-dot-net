@@ -2,6 +2,7 @@
 using System.Data.SqlClient;
 using System.Reflection;
 using System.Linq;
+using System.Data;
 namespace SqlMapper
 {
     [ServiceStack.DataAnnotations.Alias("Posts")]
@@ -28,11 +29,13 @@ namespace SqlMapper
     class Program
     {
 
-        public static readonly string connectionString = "Data Source=.;Initial Catalog=tempdb;Integrated Security=True";
+        //public static readonly string connectionString = "Data Source=.;Initial Catalog=tempdb;Integrated Security=True";
+        public static readonly string connectionString = "Server=127.0.0.1;Uid=root;Pwd=asdf;Database=sample;";
 
-        public static SqlConnection GetOpenConnection()
+        public static IDbConnection GetOpenConnection()
         {
-            var connection = new SqlConnection(connectionString);
+            //var connection = new SqlConnection(connectionString);
+            var connection = new MySql.Data.MySqlClient.MySqlConnection(connectionString);
             connection.Open();
             return connection;
         }
@@ -125,7 +128,10 @@ end
                 } catch (Exception ex)
                 {
                     fail++;
-                    Console.WriteLine(" - " + ex.Message);
+                    if (ex.InnerException == null)
+                        Console.WriteLine(" - " + ex.Message);
+                    else
+                        Console.WriteLine(" - " + ex.InnerException.Message);
                 }
             }
             Console.WriteLine();
@@ -135,7 +141,7 @@ end
             }
             else
             {
-                Console.WriteLine("#### FAILED: {0}", fail);
+                Console.WriteLine("#### FAILED: {0} / {1}", fail, methods.Length);
             }
         }
     }

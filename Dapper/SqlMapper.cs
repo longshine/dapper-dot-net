@@ -1872,6 +1872,11 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
 
                             il.MarkLabel(isNotString);
 
+                            // tricks: make everything Int32 first
+                            il.Emit(OpCodes.Ldtoken, typeof(Int32)); // stack is now [target][target][enum-as-object][Int32-type-token]
+                            il.EmitCall(OpCodes.Call, typeof(Type).GetMethod("GetTypeFromHandle"), null); // stack is now [target][target][enum-as-object][Int32-type]
+                            il.EmitCall(OpCodes.Call, typeof(SqlMapper).GetMethod("ConvertDbValue", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public), null); // stack is now [target][target][enum-as-object]
+
                             il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
 
                             if (nullUnderlyingType != null)
