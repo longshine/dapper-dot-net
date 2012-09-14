@@ -1651,6 +1651,7 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
             return r =>
             {
                 var val = r.GetValue(index);
+                //return val is DBNull ? null : (Object)Converter<Guid>.Convert(val);
                 return val is DBNull ? null : val;
             };
         }
@@ -1872,12 +1873,10 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
 
                             il.MarkLabel(isNotString);
 
-                            // tricks: make everything Int32 first
-                            il.Emit(OpCodes.Ldtoken, typeof(Int32)); // stack is now [target][target][enum-as-object][Int32-type-token]
-                            il.EmitCall(OpCodes.Call, typeof(Type).GetMethod("GetTypeFromHandle"), null); // stack is now [target][target][enum-as-object][Int32-type]
-                            il.EmitCall(OpCodes.Call, typeof(SqlMapper).GetMethod("ConvertDbValue", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public), null); // stack is now [target][target][enum-as-object]
+                            il.Emit(OpCodes.Unbox_Any, reader.GetFieldType(index));
+                            il.Emit(OpCodes.Conv_Ovf_I4);
 
-                            il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
+                            //il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
 
                             if (nullUnderlyingType != null)
                             {
@@ -1944,10 +1943,20 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                                 }
                                 else
                                 { // use flexible conversion
-                                    il.Emit(OpCodes.Ldtoken, unboxType); // stack is now [target][target][value][member-type-token]
-                                    il.EmitCall(OpCodes.Call, typeof(Type).GetMethod("GetTypeFromHandle"), null); // stack is now [target][target][value][member-type]
-                                    il.EmitCall(OpCodes.Call, typeof(Convert).GetMethod("ChangeType", new Type[] {typeof(object), typeof(Type)}),null); // stack is now [target][target][boxed-member-type-value]
-                                    il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
+                                    // try generic converter
+                                    var converterType = typeof(Converter<>).MakeGenericType(unboxType);
+                                    var convertDelegate = (Delegate)typeof(Converter<>).MakeGenericType(unboxType).GetField("Convert", BindingFlags.Static | BindingFlags.Public).GetValue(null);
+                                    if (convertDelegate == null)
+                                    { // no convert method found, try System.Convert
+                                        il.Emit(OpCodes.Ldtoken, unboxType); // stack is now [target][target][value][member-type-token]
+                                        il.EmitCall(OpCodes.Call, typeof(Type).GetMethod("GetTypeFromHandle"), null); // stack is now [target][target][value][member-type]
+                                        il.EmitCall(OpCodes.Call, typeof(Convert).GetMethod("ChangeType", new Type[] { typeof(object), typeof(Type) }), null); // stack is now [target][target][boxed-member-type-value]
+                                        il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
+                                    }
+                                    else
+                                    { // using custom type converter
+                                        il.EmitCall(OpCodes.Call, convertDelegate.Method, null); // stack is now [target][target][typed-value]
+                                    }
                                 }
                             }
                         }
@@ -2967,5 +2976,14 @@ string name, object value = null, DbType? dbType = null, ParameterDirection? dir
         }
     }
 
+    class Converter<T>
+    {
+        static Converter()
+        {
+            Converter<Guid>.Convert = o => new Guid(o.ToString());
+            Converter<Int32>.Convert = o => System.Convert.ToInt32(o);
+        }
 
+        public static Func<Object, T> Convert;
+    }
 }
