@@ -1655,7 +1655,8 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                     return null;
                 else
                 {
-                    var converter = GetConverter(type);
+                    var underlyingType = Nullable.GetUnderlyingType(type);
+                    var converter = GetConverter(underlyingType ?? type);
                     return converter == null ? System.Convert.ChangeType(val, type) : converter.Method.Invoke(null, new[] { val });
                 }
             };
@@ -3034,7 +3035,6 @@ string name, object value = null, DbType? dbType = null, ParameterDirection? dir
         static Converter()
         {
             Converter<Guid>.Convert = o => new Guid(o.ToString());
-            Converter<Guid?>.Convert = o => new Guid(o.ToString());
         }
 
         public static Func<Object, T> Convert;
