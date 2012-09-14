@@ -1651,8 +1651,13 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
             return r =>
             {
                 var val = r.GetValue(index);
-                //return val is DBNull ? null : (Object)Converter<Guid>.Convert(val);
-                return val is DBNull ? null : val;
+                if (val is DBNull)
+                    return null;
+                else
+                {
+                    var converter = GetConverter(type);
+                    return converter == null ? System.Convert.ChangeType(val, type) : converter.Method.Invoke(null, new[] { val });
+                }
             };
         }
 
@@ -1996,8 +2001,7 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                                 else
                                 { // use flexible conversion
                                     // try generic converter
-                                    var converterType = typeof(Converter<>).MakeGenericType(unboxType);
-                                    var convertDelegate = (Delegate)typeof(Converter<>).MakeGenericType(unboxType).GetField("Convert", BindingFlags.Static | BindingFlags.Public).GetValue(null);
+                                    var convertDelegate = GetConverter(unboxType);
                                     if (convertDelegate == null)
                                     { // no convert method found, try System.Convert
                                         il.Emit(OpCodes.Ldtoken, unboxType); // stack is now [target][target][value][member-type-token]
@@ -2097,6 +2101,11 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
             il.Emit(OpCodes.Ret);
 
             return (Func<IDataReader, object>)dm.CreateDelegate(typeof(Func<IDataReader,object>));
+        }
+
+        static Delegate GetConverter(Type type)
+        {
+            return (Delegate)typeof(Converter<>).MakeGenericType(type).GetField("Convert", BindingFlags.Static | BindingFlags.Public).GetValue(null);
         }
 
         private static void LoadLocal(ILGenerator il, int index)
@@ -2211,17 +2220,6 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                     }
                     break;
             }
-        }
-
-        static Object ConvertDbValue(Object value, Type type)
-        {
-            if (value == null || value.GetType() == typeof(DBNull))
-                return null;
-
-            if (value.GetType() == type)
-                return value;
-
-            return Convert.ChangeType(value, type);
         }
 
         /// <summary>
@@ -3028,12 +3026,12 @@ string name, object value = null, DbType? dbType = null, ParameterDirection? dir
         }
     }
 
-    class Converter<T>
+    static class Converter<T>
     {
         static Converter()
         {
             Converter<Guid>.Convert = o => new Guid(o.ToString());
-            Converter<Int32>.Convert = o => System.Convert.ToInt32(o);
+            Converter<Guid?>.Convert = o => new Guid(o.ToString());
         }
 
         public static Func<Object, T> Convert;
