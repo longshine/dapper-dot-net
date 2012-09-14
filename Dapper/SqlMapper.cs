@@ -1948,8 +1948,9 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                         else
                         {
                             Type dataType = reader.GetFieldType(index);
-                            TypeCode dataTypeCode = Type.GetTypeCode(dataType), unboxTypeCode = Type.GetTypeCode(unboxType);
-                            if (dataType == unboxType || dataTypeCode == unboxTypeCode || dataTypeCode == Type.GetTypeCode(nullUnderlyingType))
+                            TypeCode dataTypeCode = Type.GetTypeCode(dataType);
+                            TypeCode unboxTypeCode = Type.GetTypeCode(nullUnderlyingType ?? unboxType);
+                            if (dataType == unboxType || dataTypeCode == unboxTypeCode)
                             {
                                 il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
                             }
@@ -1997,6 +1998,8 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                                 { // unbox as the data-type, then use IL-level convert
                                     il.Emit(OpCodes.Unbox_Any, dataType); // stack is now [target][target][data-typed-value]
                                     il.Emit(opCode); // stack is now [target][target][typed-value]
+                                    if (nullUnderlyingType != null)
+                                        il.Emit(OpCodes.Newobj, memberType.GetConstructor(new[] { nullUnderlyingType })); // stack is now [target][target][nullable-value]
                                 }
                                 else
                                 { // use flexible conversion
