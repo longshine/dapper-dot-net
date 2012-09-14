@@ -1663,31 +1663,101 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                         .Select(p => p.GetGetMethod()).First();
 
         /// <summary>
+        /// Implements this interface to provide custom type mapping registry.
+        /// </summary>
+        public interface ITypeMapRegistry
+        {
+            /// <summary>
+            /// Gets type-map for the given type
+            /// </summary>
+            /// <returns>Type map implementation, DefaultTypeMap instance if no override present</returns>
+            ITypeMap GetTypeMap(Type type);
+            /// <summary>
+            /// Set custom mapping for type deserializers
+            /// </summary>
+            /// <param name="type">Entity type to override</param>
+            /// <param name="map">Mapping rules impementation, null to remove custom map</param>
+            void SetTypeMap(Type type, ITypeMap map);
+        }
+
+        static ITypeMapRegistry _typeMapRegistry;
+
+        /// <summary>
+        /// Gets or sets the type mapping registry.
+        /// </summary>
+        public static ITypeMapRegistry TypeMapRegistry
+        {
+            get
+            {
+                if (_typeMapRegistry == null)
+                    _typeMapRegistry = DefaultTypeMapRegistry.Instance;
+                return _typeMapRegistry;
+            }
+            set { _typeMapRegistry = value; }
+        }
+
+        class DefaultTypeMapRegistry : ITypeMapRegistry
+        {
+            // use Hashtable to get free lockless reading
+            public static readonly DefaultTypeMapRegistry Instance = new DefaultTypeMapRegistry();
+            private readonly Hashtable _typeMaps = new Hashtable();
+
+            private DefaultTypeMapRegistry()
+            { 
+            }
+
+            public ITypeMap GetTypeMap(Type type)
+            {
+                if (type == null) throw new ArgumentNullException("type");
+                var map = (ITypeMap)_typeMaps[type];
+                if (map == null)
+                {
+                    lock (_typeMaps)
+                    {   // double-checked; store this to avoid reflection next time we see this type
+                        // since multiple queries commonly use the same domain-entity/DTO/view-model type
+                        map = (ITypeMap)_typeMaps[type];
+                        if (map == null)
+                        {
+                            map = new DefaultTypeMap(type);
+                            _typeMaps[type] = map;
+                        }
+                    }
+                }
+                return map;
+            }
+
+            public void SetTypeMap(Type type, ITypeMap map)
+            {
+                if (type == null)
+                    throw new ArgumentNullException("type");
+
+                if (map == null || map is DefaultTypeMap)
+                {
+                    lock (_typeMaps)
+                    {
+                        _typeMaps.Remove(type);
+                    }
+                }
+                else
+                {
+                    lock (_typeMaps)
+                    {
+                        _typeMaps[type] = map;
+                    }
+                }
+
+                PurgeQueryCacheByType(type);
+            }
+        }
+
+        /// <summary>
         /// Gets type-map for the given type
         /// </summary>
         /// <returns>Type map implementation, DefaultTypeMap instance if no override present</returns>
         public static ITypeMap GetTypeMap(Type type)
         {
-            if (type == null) throw new ArgumentNullException("type");
-            var map = (ITypeMap)_typeMaps[type];
-            if(map == null)
-            {
-                lock(_typeMaps)
-                {   // double-checked; store this to avoid reflection next time we see this type
-                    // since multiple queries commonly use the same domain-entity/DTO/view-model type
-                    map = (ITypeMap)_typeMaps[type];
-                    if(map == null)
-                    {
-                        map = new DefaultTypeMap(type);
-                        _typeMaps[type] = map;
-                    }
-                }
-            }
-            return map;
+            return TypeMapRegistry.GetTypeMap(type);
         }
-
-        // use Hashtable to get free lockless reading
-        private static readonly Hashtable _typeMaps = new Hashtable();
 
         /// <summary>
         /// Set custom mapping for type deserializers
@@ -1696,25 +1766,7 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
         /// <param name="map">Mapping rules impementation, null to remove custom map</param>
         public static void SetTypeMap(Type type, ITypeMap map)
         {
-            if (type == null)
-                throw new ArgumentNullException("type");
-
-            if (map == null || map is DefaultTypeMap)
-            {
-                lock (_typeMaps)
-                {
-                    _typeMaps.Remove(type);
-                }
-            }
-            else
-            {
-                lock (_typeMaps)
-                {
-                    _typeMaps[type] = map;
-                }
-            }
-
-            PurgeQueryCacheByType(type);
+            TypeMapRegistry.SetTypeMap(type, map);
         }
 
         /// <summary>
