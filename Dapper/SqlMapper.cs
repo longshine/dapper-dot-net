@@ -2924,6 +2924,7 @@ string name, object value = null, DbType? dbType = null, ParameterDirection? dir
                     var unboxedType = Nullable.GetUnderlyingType(ctorParameters[i].ParameterType) ?? ctorParameters[i].ParameterType;
                     if (unboxedType != types[i]
                         && !(unboxedType.IsEnum && Enum.GetUnderlyingType(unboxedType) == types[i])
+                        && !(unboxedType.IsEnum && types[i].IsPrimitive && types[i] != typeof(Boolean))
                         && !(unboxedType == typeof(char) && types[i] == typeof(string)))
                         break;
                 }
