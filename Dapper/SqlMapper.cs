@@ -1929,12 +1929,16 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                             il.Emit(OpCodes.Ldc_I4_1); // stack is now [target][target][enum-type][string][true]
                             il.EmitCall(OpCodes.Call, enumParse, null); // stack is now [target][target][enum-as-object]
 
+                            Label enumDone = il.DefineLabel();
+                            il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
+                            il.Emit(OpCodes.Br_S, enumDone);
+
                             il.MarkLabel(isNotString);
 
                             il.Emit(OpCodes.Unbox_Any, reader.GetFieldType(index));
-                            il.Emit(OpCodes.Conv_Ovf_I4);
+                            il.Emit(OpCodes.Conv_Ovf_I4); // stack is now [target][target][i4-value]
 
-                            //il.Emit(OpCodes.Unbox_Any, unboxType); // stack is now [target][target][typed-value]
+                            il.MarkLabel(enumDone);
 
                             if (nullUnderlyingType != null)
                             {
