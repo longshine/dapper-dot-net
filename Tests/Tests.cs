@@ -11,6 +11,7 @@ using System.Collections;
 using System.Reflection;
 using System.Dynamic;
 using System.ComponentModel;
+using Microsoft.CSharp.RuntimeBinder;
 #if POSTGRESQL
 using Npgsql;
 #endif
@@ -747,6 +748,54 @@ Order by p.Id
 
         }
 
+        public void TestQueryMultipleBuffered()
+        {
+            using (var grid = connection.QueryMultiple("select 1; select 2; select @x; select 4", new { x = 3 }))
+            {
+                var a = grid.Read<int>();
+                var b = grid.Read<int>();
+                var c = grid.Read<int>();
+                var d = grid.Read<int>();
+
+                a.Single().Equals(1);
+                b.Single().Equals(2);
+                c.Single().Equals(3);
+                d.Single().Equals(4);
+            }
+        }
+
+        public void TestQueryMultipleNonBufferedIncorrectOrder()
+        {
+            using (var grid = connection.QueryMultiple("select 1; select 2; select @x; select 4", new { x = 3 }))
+            {
+                var a = grid.Read<int>(false);
+                try
+                {
+                    var b = grid.Read<int>(false);
+                    throw new InvalidOperationException(); // should have thrown
+                }
+                catch (InvalidOperationException)
+                {
+                    // that's expected
+                }
+                
+            }
+        }
+        public void TestQueryMultipleNonBufferedCcorrectOrder()
+        {
+            using (var grid = connection.QueryMultiple("select 1; select 2; select @x; select 4", new { x = 3 }))
+            {
+                var a = grid.Read<int>(false).Single();
+                var b = grid.Read<int>(false).Single();
+                var c = grid.Read<int>(false).Single();
+                var d = grid.Read<int>(false).Single();
+
+                a.Equals(1);
+                b.Equals(2);
+                c.Equals(3);
+                d.Equals(4);
+            }
+        }
         public void TestMultiMapDynamic()
         {
             var createSql = @"
@@ -1122,6 +1171,25 @@ end");
 
         }
 
+        public void TestMultiMappingWithSplitOnSpaceBetweenCommas()
+        {
+            var sql = @"select 
+                        1 as PersonId, 'bob' as Name, 
+                        2 as AddressId, 'abc street' as Name, 1 as PersonId,
+                        3 as Id, 'fred' as Name
+                        ";
+            var personWithAddress = connection.Query<Person, Address, Extra, Tuple<Person, Address, Extra>>
+                (sql, (p, a, e) => Tuple.Create(p, a, e), splitOn: "AddressId, Id").First();
+
+            personWithAddress.Item1.PersonId.IsEqualTo(1);
+            personWithAddress.Item1.Name.IsEqualTo("bob");
+            personWithAddress.Item2.AddressId.IsEqualTo(2);
+            personWithAddress.Item2.Name.IsEqualTo("abc street");
+            personWithAddress.Item2.PersonId.IsEqualTo(1);
+            personWithAddress.Item3.Id.IsEqualTo(3);
+            personWithAddress.Item3.Name.IsEqualTo("fred");
+
+        }
 
         public void TestFastExpandoSupportsIDictionary()
         {
@@ -1617,6 +1685,34 @@ Order by p.Id";
             result[2].IsEqualTo(3);
         }
 
+        public void TestAppendingAListAsDictionary()
+        {
+            DynamicParameters p = new DynamicParameters();
+            var list = new int[] { 1, 2, 3 };
+            var args = new Dictionary<string, object>();
+            args.Add("ids", list);
+            p.AddDynamicParams(args);
+
+            var result = connection.Query<int>("select * from (select 1 A union all select 2 union all select 3) X where A in @ids", p).ToList();
+
+            result[0].IsEqualTo(1);
+            result[1].IsEqualTo(2);
+            result[2].IsEqualTo(3);
+        }
+
+        public void TestAppendingAListByName()
+        {
+            DynamicParameters p = new DynamicParameters();
+            var list = new int[] { 1, 2, 3 };
+            p.Add("ids", list);
+
+            var result = connection.Query<int>("select * from (select 1 A union all select 2 union all select 3) X where A in @ids", p).ToList();
+
+            result[0].IsEqualTo(1);
+            result[1].IsEqualTo(2);
+            result[2].IsEqualTo(3);
+        }
+
         public void TestUniqueIdentifier()
         {
             var guid = Guid.NewGuid();
@@ -1935,6 +2031,192 @@ Order by p.Id";
             item.D.Equals(true);
         }
 
+        public void Test_AddDynamicParametersRepeatedShouldWork()
+        {
+            var args = new DynamicParameters();
+            args.AddDynamicParams(new { Foo = 123 });
+            args.AddDynamicParams(new { Foo = 123 });
+            int i = connection.Query<int>("select @Foo", args).Single();
+            i.IsEqualTo(123);
+        }
+
+
+        public class ParameterWithIndexer
+        {
+            public int A { get; set; }
+            public virtual string this[string columnName]
+            {
+                get { return null; }
+                set { }
+            }
+        }
+
+        public void TestParameterWithIndexer()
+        {
+            connection.Execute(@"create proc #TestProcWithIndexer 
+	@A int
+as 
+begin
+	select @A
+end");
+            var item = connection.Query<int>("#TestProcWithIndexer", new ParameterWithIndexer(), commandType: CommandType.StoredProcedure).Single();
+        }
+
+        public void Issue_40_AutomaticBoolConversion()
+        {
+            var user = connection.Query<Issue40_User>("select UserId=1,Email='abc',Password='changeme',Active=cast(1 as tinyint)").Single();
+            user.Active.IsTrue();
+            user.UserID.IsEqualTo(1);
+            user.Email.IsEqualTo("abc");
+            user.Password.IsEqualTo("changeme");
+        }
+
+        public class Issue40_User
+        {
+          public Issue40_User()
+          {
+             Email = Password = String.Empty;
+          }
+          public int UserID { get; set; }
+          public string Email { get; set; }
+          public string Password { get; set; }
+          public bool Active { get; set; }
+        }
+
+        SqlConnection GetClosedConnection()
+        {
+            var conn = new SqlConnection(connection.ConnectionString);
+            if (conn.State != ConnectionState.Closed) throw new InvalidOperationException("should be closed!");
+            return conn;
+        }
+        public void ExecuteFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                conn.Execute("-- nop");
+                conn.State.IsEqualTo(ConnectionState.Closed);
+            }
+        }
+        public void ExecuteInvalidFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                try
+                {
+                    conn.Execute("nop");
+                    false.IsEqualTo(true); // shouldn't have got here
+                }
+                catch
+                {
+                    conn.State.IsEqualTo(ConnectionState.Closed);
+                }
+            }
+        }
+        public void QueryFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                var i = conn.Query<int>("select 1").Single();
+                conn.State.IsEqualTo(ConnectionState.Closed);
+                i.IsEqualTo(1);
+            }
+        }
+        public void QueryInvalidFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                try
+                {
+                    conn.Query<int>("select gibberish").Single();
+                    false.IsEqualTo(true); // shouldn't have got here
+                }
+                catch
+                {
+                    conn.State.IsEqualTo(ConnectionState.Closed);
+                }
+            }
+        }
+        public void QueryMultipleFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                using (var multi = conn.QueryMultiple("select 1; select 'abc';"))
+                {
+                    multi.Read<int>().Single().IsEqualTo(1);
+                    multi.Read<string>().Single().IsEqualTo("abc");
+                }
+                conn.State.IsEqualTo(ConnectionState.Closed);
+            }
+        }
+        public void QueryMultipleInvalidFromClosed()
+        {
+            using (var conn = GetClosedConnection())
+            {
+                try
+                {
+                    conn.QueryMultiple("select gibberish");
+                    false.IsEqualTo(true); // shouldn't have got here
+                }
+                catch
+                {
+                    conn.State.IsEqualTo(ConnectionState.Closed);
+                }
+            }
+        }
+
+        public void TestMultiSelectWithSomeEmptyGrids()
+        {
+            using (var reader = connection.QueryMultiple("select 1; select 2 where 1 = 0; select 3 where 1 = 0; select 4;"))
+            {
+                var one = reader.Read<int>().ToArray();
+                var two = reader.Read<int>().ToArray();
+                var three = reader.Read<int>().ToArray();
+                var four = reader.Read<int>().ToArray();
+                try { // only returned four grids; expect a fifth read to fail
+                    reader.Read<int>();
+                    throw new InvalidOperationException("this should not have worked!");
+                }
+                catch (ObjectDisposedException ex) { // expected; success
+                    ex.Message.IsEqualTo("The reader has been disposed; this can happen after all data has been consumed\r\nObject name: 'Dapper.SqlMapper+GridReader'.");
+                }
+
+                one.Length.IsEqualTo(1);
+                one[0].IsEqualTo(1);
+                two.Length.IsEqualTo(0);
+                three.Length.IsEqualTo(0);
+                four.Length.IsEqualTo(1);
+                four[0].IsEqualTo(4);
+            }
+        }
+
+        public void TestDynamicMutation()
+        {
+            var obj = connection.Query("select 1 as [a], 2 as [b], 3 as [c]").Single();
+            ((int)obj.a).IsEqualTo(1);
+            IDictionary<string,object> dict = obj;
+            Assert.Equals(3, dict.Count);
+            Assert.IsTrue(dict.Remove("a"));
+            Assert.IsFalse(dict.Remove("d"));
+            Assert.Equals(2, dict.Count);
+            dict.Add("d", 4);
+            Assert.Equals(3, dict.Count);
+            Assert.Equals("b,c,d", string.Join(",", dict.Keys.OrderBy(x => x)));
+            Assert.Equals("2,3,4", string.Join(",", dict.OrderBy(x => x.Key).Select(x => x.Value)));
+
+            Assert.Equals(2, (int)obj.b);
+            Assert.Equals(3, (int)obj.c);
+            Assert.Equals(4, (int)obj.d);
+            try
+            {
+                ((int)obj.a).IsEqualTo(1);
+                throw new InvalidOperationException("should have thrown");
+            }
+            catch (RuntimeBinderException)
+            {
+                // pass
+            }
+        }
+
         class TransactedConnection : IDbConnection
         {
             IDbConnection _conn;
@@ -1989,6 +2271,24 @@ Order by p.Id";
                 _conn.Open();
             }
         }
+
+		public void TestDapperTableMetadataRetrieval()
+		{
+			// Test for a bug found in CS 51509960 where the following sequence would result in an InvalidOperationException being
+			// thrown due to an attempt to access a disposed of DataReader:
+			//
+			// - Perform a dynamic query that yields no results
+			// - Add data to the source of that query
+			// - Perform a the same query again
+			connection.Execute("CREATE TABLE #sut (value varchar(10) NOT NULL PRIMARY KEY)");
+			connection.Query("SELECT value FROM #sut").IsSequenceEqualTo(Enumerable.Empty<dynamic>());
+			
+			connection.Execute("INSERT INTO #sut (value) VALUES ('test')").IsEqualTo(1);
+			var result = connection.Query("SELECT value FROM #sut");
+			
+			var first = result.First();
+			((string)first.value).IsEqualTo("test");
+		}
 
 #if POSTGRESQL
 
