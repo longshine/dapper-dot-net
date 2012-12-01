@@ -41,6 +41,24 @@ namespace Dapper
         }
 
         /// <summary>
+        /// Implements this interface to provide custom type mapping registry.
+        /// </summary>
+        public interface ITypeMapRegistry
+        {
+            /// <summary>
+            /// Gets type-map for the given type
+            /// </summary>
+            /// <returns>Type map implementation, DefaultTypeMap instance if no override present</returns>
+            ITypeMap GetTypeMap(Type type);
+            /// <summary>
+            /// Set custom mapping for type deserializers
+            /// </summary>
+            /// <param name="type">Entity type to override</param>
+            /// <param name="map">Mapping rules impementation, null to remove custom map</param>
+            void SetTypeMap(Type type, ITypeMap map);
+        }
+
+        /// <summary>
         /// Implement this interface to change default mapping of reader columns to type memebers
         /// </summary>
         public interface ITypeMap
@@ -1982,24 +2000,6 @@ this IDbConnection cnn, string sql, Func<TFirst, TSecond, TThird, TFourth, TRetu
                     getItem = typeof(IDataRecord).GetProperties(BindingFlags.Instance | BindingFlags.Public)
                         .Where(p => p.GetIndexParameters().Any() && p.GetIndexParameters()[0].ParameterType == typeof(int))
                         .Select(p => p.GetGetMethod()).First();
-
-        /// <summary>
-        /// Implements this interface to provide custom type mapping registry.
-        /// </summary>
-        public interface ITypeMapRegistry
-        {
-            /// <summary>
-            /// Gets type-map for the given type
-            /// </summary>
-            /// <returns>Type map implementation, DefaultTypeMap instance if no override present</returns>
-            ITypeMap GetTypeMap(Type type);
-            /// <summary>
-            /// Set custom mapping for type deserializers
-            /// </summary>
-            /// <param name="type">Entity type to override</param>
-            /// <param name="map">Mapping rules impementation, null to remove custom map</param>
-            void SetTypeMap(Type type, ITypeMap map);
-        }
 
         static ITypeMapRegistry _typeMapRegistry;
 
