@@ -69,10 +69,6 @@
       <Project>{BF782EF1-2B0F-42FA-9DD0-928454A94C6D}</Project>
       <Name>Dapper.SqlBuilder</Name>
     </ProjectReference>
-    <ProjectReference Include="..\Dapper\Dapper.csproj">
-      <Project>{DAF737E1-05B5-4189-A5AA-DAC6233B64D7}</Project>
-      <Name>Dapper</Name>
-    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

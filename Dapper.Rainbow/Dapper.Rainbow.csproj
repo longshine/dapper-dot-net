@@ -46,12 +46,6 @@
     <Compile Include="SqlCompactDatabase.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Dapper\Dapper.csproj">
-      <Project>{DAF737E1-05B5-4189-A5AA-DAC6233B64D7}</Project>
-      <Name>Dapper</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
     <None Include="Dapper.Rainbow.nuspec">
       <SubType>Designer</SubType>
     </None>
